@@ -1,0 +1,260 @@
+#!/bin/bash
+version="0.4"
+
+usage ()
+{
+	echo \
+'Usage: display-visor [-f] [-i] [-l [switch]]
+
+	-f, --feh	Run feh bg script.
+                         Executes ~/.fehbg upon completion.
+	-i, --i3	Test for i3wm instance.
+                         For avoiding conflict with multiple environments.
+	-l, --lid	Check laptop lid status.
+                         Ignored/Assumed closed if not given. 
+                         It is possible to specify switch. Defaults to 'LID0'
+                         If unsure, look under /proc/acpi/button/lid/...
+    -ob | --output-bellow   with 2 arguments: 
+                             First display (1. arg) is bottom of second display (2. arg)
+                             2.) ID of other display you try to bottom of   
+	-v, --version	Print version info.
+
+ Useful for setting monitor layouts on system login/resume/hotplug
+ when using window managers that do not handle display settings.
+
+ Depends on xorg-xrandr.
+
+This is free software.
+2015, Michael Heyns <https://github.com/beanaroo>
+'
+}
+
+get_lid_status ()
+{
+    lidstatus=$(cat /proc/acpi/button/lid/$lidswitch/state 2>/dev/null | awk '{print $NF}')
+    echo "lid status recieved: $lidstatus"
+}
+
+handle_args ()
+{
+	while [ "$1" != "" ]; do
+		case $1 in
+			-h | --help )		usage
+								exit
+								;;
+			-f | --feh )		fehbg=true
+								;;
+			-i | --i3 )			i3test=true
+								;;
+			-l | --lid )    	lidtest=true
+                                lidswitch=${2:-LID0}
+                                get_lid_status
+                                shift
+								;;
+            -ol | --output-left )   left_output=$2
+                                    shift
+                                    left_of=$2
+                                    shift
+                                    ;;
+            -ob | --output-bellow ) bottom_output=$2
+                                    shift
+                                    bottom_of=$2
+                                    shift
+                                    ;;
+			-v | --version )	echo "display-visor $version"
+								exit
+								;;
+			* )				usage
+								exit 1
+								;;
+		esac
+		shift
+	done
+}
+
+
+## Error Handling
+handle_err ()
+{
+    # Test for running Xorg server
+    if [ -z "$(ps -C Xorg --no-headers)" ]; then
+        echo "$prefix No Xorg server found. Exiting..."
+        exit 1
+    fi
+
+    # Test for running instance of i3
+    if [ "$i3test" == "true" -a -z "$(ps -C i3 --no-headers)" ]; then
+        echo "$prefix i3wm not running. Exiting..."
+        exit 1
+    fi
+
+    # Test for valid laptop lid status.
+    if [ "$lidtest" == "true" -a -z "$lidstatus" ]; then
+        echo "$prefix Laptop lid switch $lidswitch not found. Exiting..."
+        exit 1
+    fi
+}
+
+## Array substraction $1 - $2
+substract_arrays ()
+{
+    array=$1
+    
+    for del in ${2[@]} ; do
+        array=(“${array[@]/$del}”)
+    done
+    
+    return ${array[@]/$delete}
+}
+
+## Declare Output Devices
+declare_outputs ()
+{
+    devices=$(xrandr | grep -w connected)
+    connected_outputs=()
+    while read l ; do
+        dev=${l%% *}
+        echo "$prefix $dev connected"
+        connected_outputs+=( $dev )
+    done <<< "$devices"
+
+    devices=$(xrandr --listactivemonitors | sed '1d')
+    active_outputs=()
+    while read l ; do
+        dev=$(echo $l | awk '{print $NF}')
+        echo "$prefix $dev active"
+        active_outputs+=( $dev )
+    done <<< "$devices"
+
+    #to_on_outputs=substract_arrays $connected_outputs $active_outputs
+    #echo "$prefix $to_on_outputs should be switched on"
+    #to_off_outputs=substract_arrays $active_outputs $connected_outputs
+    #echo "$prefix $to_off_outputs should be switched off"
+}
+
+containsElement () {
+  local e match="$1"
+  shift
+  for e; do [[ "$e" == "$match" ]] && return 0; done
+  return 1
+}
+
+
+## Configure monitors for closed lid
+config_outputs ()
+{
+
+    get_lid_status
+    
+    if [ "$lidstatus" == "closed" ]; then
+        echo "$prefix Laptop lid is closed"
+    fi
+
+    # Turn off active displays
+    xrandr_parameters=""
+    for output in "${active_outputs[@]}"; do
+        echo "$prefix to switch off $output"
+        xrandr_parameters="${xrandr_parameters}--output $output --off "
+    done
+
+    echo "switching off using: xrandr $xrandr_parameters"
+    xrandr $xrandr_parameters
+
+    # Automatically setup displays
+    xrandr_parameters=""
+    previous_output=""
+    position_msg=""
+    for output in "${connected_outputs[@]}"; do
+        # Skip internal display if closed
+        if [[ $output == e* ]] ; then
+
+            if [ -z "$lidtest" ]; then
+                echo "$prefix Lid status of laptop display will be ignored unless -l option is set"
+            fi
+            
+            if [ "$lidstatus" == "closed" ]; then
+                echo "$prefix lid closed, skipping internal display $output"
+                continue
+            fi
+        fi
+        
+        containsElement "$bottom_of" "${connected_outputs[@]}"
+        bottom_of_exists=$?
+        containsElement "$left_of" "${connected_outputs[@]}"
+        left_of_exists=$?
+
+        if [ "$output" == "$bottom_output" -a "$bottom_of_exists" -eq 0 ] ; then
+            position_cmd="--below $bottom_of"
+            position_msg="bottom of $bottom_of"
+        elif [ "$output" == "$left_output" -a "$left_of_exists" -eq 0 ] ; then
+            position_cmd="--left-of $left_of"
+            position_msg="left of $left_of"
+        elif [ -z "$previous_output" ] ; then
+            position_cmd=""
+            position_msg=""
+            previous_output=$output
+        else
+            # default is right of previous
+            position_cmd="--right-of $previous_output"
+            position_msg="right of $previous_output"
+            previous_output=$output
+        fi
+
+        echo "$prefix display detected $output $position_msg"
+        xrandr_parameters="${xrandr_parameters}--output $output --auto $position_cmd "
+    done
+
+    echo "switching on using: xrandr $xrandr_parameters"
+    xrandr $xrandr_parameters
+}
+
+configure_displays ()
+{
+
+    handle_err
+
+    declare_outputs
+
+    config_outputs
+
+    # Run .fehbg script if -f argument is given.
+    if [ "$fehbg" == "true" ]; then
+        if [ -x $HOME/.fehbg ]; then
+            echo "$prefix Setting background using .fehbg."
+            $($HOME/.fehbg 2>/dev/null)
+        else
+            echo ".$prefix Failed to execute ~/.fehbg script. Use 'feh --bg-xxx' to generate one."
+        fi
+    fi
+
+	# FIXME: Prevent segfault occurring from simultanious signals. -- Issue #5 --
+	sleep 2
+
+}
+
+#-----------#
+#   Begin   #
+#-----------#
+
+# Set exit signal trap.
+trap "echo 'Received interrupt. Exiting...' ; exit" SIGHUP SIGINT SIGQUIT
+
+# Log output.
+#prefix='[ display-visor: ]:'
+exec 1> >(logger -s -t "display-visor") 2>&1
+
+# Handle arguments.
+handle_args "$@"
+
+# Configure displays upon initialization.
+configure_displays
+
+# Set reconfigure trap.
+trap "echo 'Received signal. Reconfiguring displays.' ; configure_displays" RTMIN+5
+
+# Wait for signals
+while :
+do
+    sleep 60 &
+    wait 
+done
