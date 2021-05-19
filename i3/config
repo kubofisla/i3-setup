@@ -9,6 +9,9 @@
 # layout, use the i3-config-wizard
 #
 
+# General settings
+workspace_auto_back_and_forth yes
+
 # Logo key. Use $mod for Alt.
 set $mod Mod4
 # Home row direction keys, like vim
@@ -18,6 +21,9 @@ set $up k
 set $right l
 # Your preferred terminal emulator
 set $term alacritty
+# User preffered locker
+#set $Locker i3lock -c 044015 && sleep 1
+set $Locker i3lock -c 001a01 && sleep 1
 # Workspaces
 set $ws1 "1 "
 set $ws2 "2 "
@@ -30,18 +36,23 @@ set $ws8 "8 Projects"
 set $ws9 "9"
 set $ws10 "10"
 # Application launcher
-set $menu rofi --show run
-set $dmenu rofi --show drun
+#set $menu rofi --show run
+#set $dmenu rofi --show drun
+# Screenshots
+set $screenshotFile ~/Screenshots/ss-$(date +%F_%H-%M-%S).png
+set $screenshotWindow import -window root
+set $screenshot import
 
 # Assignment
 assign [class="jetbrains-idea"] $ws2
 assign [class="Slack"] $ws5
+assign [class="zoom"] $ws5
 assign [class="Helix P4V"] $ws4
 assign [class="Thunderbird$"] $ws3
 
 for_window [window_role="pop-up"] floating enable;border normal
 for_window [window_role="task_dialog"] floating enable;border normal
-# floating
+# Floating Windows
 for_window [class="Pavucontrol"] floating enable
 for_window [class="XCalc"] floating enable
 for_window [class="Galculator"] floating enable
@@ -74,6 +85,9 @@ bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT
 bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3status
+# Control backlight
+bindsym XF86MonBrightnessUp exec light -A 5
+bindsym XF86MonBrightnessDown exec light -U 5
 
 # use these keys for focus, movement, and resize directions when reaching for
 # the arrows is not convenient
@@ -96,12 +110,15 @@ bindsym $mod+Return exec $term
 bindsym $mod+Shift+q kill
 
 # start dmenu (a program launcher)
-#bindsym $mod+d exec --no-startup-id dmenu_run
+bindsym $mod+Shift+d exec --no-startup-id dmenu_run
 # A more modern dmenu replacement is rofi:
 bindsym $mod+d exec "rofi -modi drun,run -show drun"
 # There also is i3-dmenu-desktop which only displays applications shipping a
 # .desktop file. It is a wrapper around dmenu, so you need that installed.
-# bindsym $mod+d exec --no-startup-id i3-dmenu-desktop
+#bindsym $mod+d exec --no-startup-id i3-dmenu-desktop
+# User defined menu
+#bindsym $mod+d exec $dmenu
+#bindsym $mod+Shift+d exec $menu
 
 # change focus
 bindsym $mod+$left focus left
@@ -143,6 +160,7 @@ bindsym $mod+e layout toggle split
 
 # toggle tiling / floating
 bindsym $mod+Shift+space floating toggle
+bindsym $mod+button3 floating toggle
 
 # change focus between tiling / floating windows
 bindsym $mod+space focus mode_toggle
@@ -151,7 +169,7 @@ bindsym $mod+space focus mode_toggle
 bindsym $mod+a focus parent
 
 # focus the child container
-#bindsym $mod+d focus child
+bindsym $mod+Shift+a focus child
 
 # move the currently focused window to the scratchpad
 bindsym $mod+Shift+n move scratchpad
@@ -184,12 +202,21 @@ bindsym $mod+Shift+8 move container to workspace number $ws8
 bindsym $mod+Shift+9 move container to workspace number $ws9
 bindsym $mod+Shift+0 move container to workspace number $ws10
 
+# Move the current workspace to the next output
+# (effectively toggles when you only have two outputs)
+bindsym $mod+x move workspace to output right
+bindsym $mod+shift+x move workspace to output up
+
 # reload the configuration file
 bindsym $mod+Shift+c reload
 # restart i3 inplace (preserves your layout/session, can be used to upgrade i3)
 bindsym $mod+Shift+r restart
 # exit i3 (logs you out of your X session)
 bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -B 'Yes, exit i3' 'i3-msg exit'"
+
+# Screenshots
+bindsym --release Print exec --no-startup-id $screenshotWindow $screenshotFile
+bindsym --release $mod+Print exec --no-startup-id $screenshot $screenshotFile
 
 # resize window (you can also use the mouse for that)
 mode "resize" {
@@ -215,7 +242,6 @@ mode "resize" {
         bindsym Escape mode "default"
         bindsym $mod+r mode "default"
 }
-
 bindsym $mod+r mode "resize"
 
 # Start i3bar to display a workspace bar (plus the system information i3status
@@ -224,14 +250,34 @@ bar {
         status_command i3status
 }
 
-#######################################################################
-# automatically start i3-config-wizard to offer the user to create a
-# keysym-based config which used their favorite modifier (alt or windows)
 #
-# i3-config-wizard will not launch if there already is a config file
-# in ~/.config/i3/config (or $XDG_CONFIG_HOME/i3/config if set) or
-# ~/.i3/config.
+# Power button menu
 #
-# Please remove the following exec line:
-#######################################################################
-exec i3-config-wizard
+set $mode_system System (l) lock, (e) logout, (s) suspend, (h) hibernate, (r) reboot, (Shift+s) shutdown
+mode "$mode_system" {
+    bindsym l exec --no-startup-id $Locker, mode "default"
+    bindsym e exec --no-startup-id i3-msg exit, mode "default"
+    bindsym s exec --no-startup-id $Locker && systemctl suspend, mode "default"
+    bindsym h exec --no-startup-id $Locker && systemctl hibernate, mode "default"
+    bindsym r exec --no-startup-id systemctl reboot, mode "default"
+    bindsym Shift+s exec --no-startup-id systemctl poweroff -i, mode "default"
+
+    # back to normal: Enter or Escape
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+Delete mode "$mode_system"
+
+#
+# Keyboard layout setup
+# 
+set $keyboard_layout Keyboard Layout: (u) US English keyboard, (s) SK QWERTY keyboard
+mode "$keyboard_layout" {
+        bindsym u exec --no-startup-id setxkbmap us ,mode "default"
+        bindsym s exec --no-startup-id setxkbmap sk -variant qwerty,mode "default"
+
+        # back to normal: Enter or Escape
+        bindsym Return mode "default"
+        bindsym Escape mode "default"
+}
+bindsym $mod+Shift+z mode "$keyboard_layout"
